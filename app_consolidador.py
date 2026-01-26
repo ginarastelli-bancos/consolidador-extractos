@@ -92,13 +92,26 @@ def buscar_columna(df_columns, variantes):
                 return col
     return None
 
-def procesar_pestaña(df, nombre_pestaña, nombre_archivo):
+def procesar_pestaña(df, nombre_pestaña, nombre_archivo, modo_debug=False):
     """
     Procesa una pestaña de Excel y extrae las columnas requeridas.
     """
     logs = []
     
     try:
+        # Verificar que no esté vacío
+        if df.empty:
+            logs.append(f"  ⏭️ Pestaña '{nombre_pestaña}': vacía, omitiendo")
+            return None, logs
+        
+        # DEBUG: Mostrar todas las columnas de la pestaña
+        if modo_debug:
+            logs.append(f"  🔍 DEBUG - Pestaña '{nombre_pestaña}':")
+            logs.append(f"     Total columnas: {len(df.columns)}")
+            logs.append(f"     Columnas encontradas:")
+            for i, col in enumerate(df.columns, 1):
+                logs.append(f"       {i}. {col}")
+        
         # Buscar las columnas requeridas (incluyendo variantes)
         columnas_encontradas = {}
         columnas_faltantes = []
@@ -111,8 +124,14 @@ def procesar_pestaña(df, nombre_pestaña, nombre_archivo):
             else:
                 columnas_faltantes.append(col_estandar)
         
-        # Si faltan columnas, esta pestaña no es válida
+        # Si faltan columnas, mostrar detalle
         if columnas_faltantes:
+            logs.append(f"  ❌ Pestaña '{nombre_pestaña}': faltan {len(columnas_faltantes)} columnas")
+            if modo_debug:
+                logs.append(f"     Columnas faltantes:")
+                for col in columnas_faltantes:
+                    logs.append(f"       • {col} (buscadas: {', '.join(COLUMNAS_MAPPING[col])})")
+                logs.append(f"     Columnas encontradas: {len(columnas_encontradas)}/{len(COLUMNAS_MAPPING)}")
             return None, logs
         
         # Extraer las columnas y renombrarlas al estándar
@@ -127,16 +146,17 @@ def procesar_pestaña(df, nombre_pestaña, nombre_archivo):
         # Reordenar columnas con MES al inicio
         df_extraido = df_extraido[COLUMNAS_FINALES]
         
-        logs.append(f"  ✅ Pestaña '{nombre_pestaña}': {len(df_extraido)} filas procesadas")
+        logs.append(f"  ✅ Pestaña '{nombre_pestaña}': {len(df_extraido):,} filas extraídas")
         return df_extraido, logs
         
     except Exception as e:
         logs.append(f"  ❌ Pestaña '{nombre_pestaña}': Error - {str(e)}")
         return None, logs
 
-def procesar_archivo(archivo, logs):
+def procesar_archivo(archivo, logs, modo_debug=False):
     """
     Procesa un archivo Excel buscando en TODAS sus pestañas.
+    Consolida datos de TODAS las pestañas que tengan las columnas requeridas.
     """
     try:
         # Reiniciar el puntero del archivo
@@ -151,26 +171,25 @@ def procesar_archivo(archivo, logs):
         
         # Listar todas las pestañas
         pestañas = xls.sheet_names
-        logs.append(f"{archivo.name}: 📋 Pestañas encontradas: {', '.join(pestañas)}")
+        logs.append(f"\n{'='*70}")
+        logs.append(f"📁 {archivo.name}")
+        logs.append(f"  📋 Pestañas encontradas ({len(pestañas)}): {', '.join(pestañas)}")
         
         # Procesar cada pestaña
         datos_validos = []
+        pestañas_procesadas = []
         
         for nombre_pestaña in pestañas:
             try:
                 df = pd.read_excel(xls, sheet_name=nombre_pestaña)
                 
-                # Verificar que no esté vacío
-                if df.empty:
-                    logs.append(f"  ⚠️ Pestaña '{nombre_pestaña}': vacía, omitiendo")
-                    continue
-                
                 # Intentar procesar esta pestaña
-                df_procesado, logs_pestaña = procesar_pestaña(df, nombre_pestaña, archivo.name)
+                df_procesado, logs_pestaña = procesar_pestaña(df, nombre_pestaña, archivo.name, modo_debug)
                 logs.extend(logs_pestaña)
                 
-                if df_procesado is not None:
+                if df_procesado is not None and len(df_procesado) > 0:
                     datos_validos.append(df_procesado)
+                    pestañas_procesadas.append(nombre_pestaña)
                     
             except Exception as e:
                 logs.append(f"  ⚠️ Pestaña '{nombre_pestaña}': Error al leer - {str(e)}")
@@ -179,13 +198,14 @@ def procesar_archivo(archivo, logs):
         # Consolidar datos de todas las pestañas válidas
         if datos_validos:
             df_final = pd.concat(datos_validos, ignore_index=True)
-            logs.append(f"{archivo.name}: ✅ Total procesado: {len(df_final)} filas de {len(datos_validos)} pestaña(s)")
+            
+            if len(pestañas_procesadas) > 1:
+                logs.append(f"  🔄 Consolidando {len(pestañas_procesadas)} pestañas: {', '.join(pestañas_procesadas)}")
+            
+            logs.append(f"  ✅ TOTAL del archivo: {len(df_final):,} filas de {len(pestañas_procesadas)} pestaña(s)")
             return df_final
         else:
-            logs.append(f"{archivo.name}: ❌ No se encontraron pestañas con las columnas requeridas")
-            logs.append(f"  Columnas buscadas:")
-            for col in COLUMNAS_FINALES[1:]:
-                logs.append(f"    • {col}")
+            logs.append(f"  ❌ No se encontraron pestañas válidas con las columnas requeridas")
             return None
         
     except Exception as e:
@@ -194,17 +214,22 @@ def procesar_archivo(archivo, logs):
         logs.append(f"  Detalle: {traceback.format_exc()}")
         return None
 
-def consolidar_archivos(archivos):
+def consolidar_archivos(archivos, modo_debug=False):
     """
     Consolida múltiples archivos Excel en uno solo.
     """
     logs = []
     datos_consolidados = []
+    archivos_procesados = []
+    
+    logs.append("🔍 INICIANDO CONSOLIDACIÓN")
+    logs.append(f"Archivos a procesar: {len(archivos)}")
     
     for archivo in archivos:
-        df = procesar_archivo(archivo, logs)
+        df = procesar_archivo(archivo, logs, modo_debug)
         if df is not None:
             datos_consolidados.append(df)
+            archivos_procesados.append(archivo.name)
     
     if datos_consolidados:
         df_final = pd.concat(datos_consolidados, ignore_index=True)
@@ -215,14 +240,21 @@ def consolidar_archivos(archivos):
         except:
             logs.append("⚠️ No se pudo ordenar por fecha")
         
-        logs.append(f"\n✅ Consolidación completada: {len(df_final)} filas totales de {len(datos_consolidados)} archivo(s)")
+        logs.append(f"\n{'='*70}")
+        logs.append(f"✅ CONSOLIDACIÓN COMPLETADA")
+        logs.append(f"  • Archivos procesados: {len(archivos_procesados)}")
+        logs.append(f"  • Total de registros: {len(df_final):,}")
+        logs.append(f"{'='*70}")
+        
         return df_final, logs
     else:
-        logs.append("\n❌ No se pudieron extraer datos de ningún archivo")
+        logs.append(f"\n{'='*70}")
+        logs.append("❌ No se pudieron extraer datos de ningún archivo")
+        logs.append(f"{'='*70}")
         return None, logs
 
 # Mostrar información de dependencias instaladas
-with st.expander("🔧 Información del sistema (debug)"):
+with st.expander("🔧 Información del sistema"):
     import sys
     st.code(f"Python: {sys.version}")
     st.code(f"Pandas: {pd.__version__}")
@@ -248,14 +280,17 @@ with st.expander("🔧 Información del sistema (debug)"):
         engines_disponibles.append("xlsxwriter: NO DISPONIBLE")
     
     st.code("\n".join(engines_disponibles))
-    
-    st.markdown("**Columnas esperadas (con variantes aceptadas):**")
-    for col_estandar, variantes in COLUMNAS_MAPPING.items():
-        st.text(f"• {col_estandar}: {', '.join(variantes)}")
-    st.info("⚠️ El sistema busca en TODAS las pestañas de cada archivo Excel")
 
 # Interfaz de usuario
 st.markdown("### 📁 Subir archivos Excel")
+st.info("💡 El sistema extrae automáticamente datos de TODAS las pestañas que contengan las columnas requeridas")
+
+# Checkbox para modo debug
+modo_debug = st.checkbox("🐛 Activar modo DEBUG (mostrar todas las columnas de cada pestaña)", value=False)
+
+if modo_debug:
+    st.warning("⚠️ Modo DEBUG activado: se mostrarán todas las columnas encontradas en cada pestaña")
+
 archivos_subidos = st.file_uploader(
     "Selecciona uno o más archivos Excel (.xlsx) con extractos bancarios",
     type=['xlsx'],
@@ -263,23 +298,29 @@ archivos_subidos = st.file_uploader(
 )
 
 if archivos_subidos:
-    st.info(f"📊 {len(archivos_subidos)} archivo(s) cargado(s)")
+    st.success(f"📊 {len(archivos_subidos)} archivo(s) cargado(s)")
     
-    if st.button("🔄 Consolidar archivos", type="primary"):
-        with st.spinner("Procesando..."):
-            df_consolidado, logs = consolidar_archivos(archivos_subidos)
+    if st.button("🔄 Consolidar archivos", type="primary", use_container_width=True):
+        with st.spinner("Procesando todas las pestañas de todos los archivos..."):
+            df_consolidado, logs = consolidar_archivos(archivos_subidos, modo_debug)
             
             # Mostrar log de procesamiento
             st.markdown("### 📋 Log de procesamiento")
-            for log in logs:
-                if "✅" in log:
-                    st.success(log)
-                elif "⚠️" in log:
-                    st.warning(log)
-                elif "❌" in log:
-                    st.error(log)
-                else:
-                    st.info(log)
+            log_container = st.container()
+            with log_container:
+                for log in logs:
+                    if "✅" in log or "COMPLETADA" in log:
+                        st.success(log)
+                    elif "⚠️" in log or "⏭️" in log:
+                        st.warning(log)
+                    elif "❌" in log:
+                        st.error(log)
+                    elif "🔍" in log or "📋" in log or "🔄" in log or "📁" in log:
+                        st.info(log)
+                    elif log.strip().startswith("="):
+                        st.markdown(f"```\n{log}\n```")
+                    else:
+                        st.text(log)
             
             # Si hay datos consolidados, mostrar y permitir descarga
             if df_consolidado is not None:
@@ -287,7 +328,15 @@ if archivos_subidos:
                 st.markdown("### 📊 Vista previa del consolidado")
                 st.dataframe(df_consolidado.head(100), use_container_width=True)
                 
-                st.markdown(f"**Total de registros:** {len(df_consolidado)}")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total de registros", f"{len(df_consolidado):,}")
+                with col2:
+                    if 'ENTIDAD_LEGAL' in df_consolidado.columns:
+                        st.metric("Entidades diferentes", df_consolidado['ENTIDAD_LEGAL'].nunique())
+                with col3:
+                    if 'NOMBRE_BANCO' in df_consolidado.columns:
+                        st.metric("Bancos diferentes", df_consolidado['NOMBRE_BANCO'].nunique())
                 
                 # Mostrar resumen por mes
                 if 'MES' in df_consolidado.columns:
@@ -295,10 +344,14 @@ if archivos_subidos:
                     resumen_mes = df_consolidado['MES'].value_counts().sort_index(ascending=False)
                     col1, col2 = st.columns([1, 2])
                     with col1:
-                        st.dataframe(resumen_mes.reset_index().rename(columns={'MES': 'Mes', 'count': 'Cantidad'}), 
-                                   use_container_width=True, hide_index=True)
+                        st.dataframe(
+                            resumen_mes.reset_index().rename(columns={'MES': 'Mes', 'count': 'Cantidad'}), 
+                            use_container_width=True, 
+                            hide_index=True
+                        )
                 
                 # Botón de descarga
+                st.markdown("---")
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df_consolidado.to_excel(writer, index=False, sheet_name='Consolidado')
@@ -312,7 +365,9 @@ if archivos_subidos:
                         'bold': True,
                         'bg_color': '#0066CC',
                         'font_color': 'white',
-                        'border': 1
+                        'border': 1,
+                        'align': 'center',
+                        'valign': 'vcenter'
                     })
                     
                     # Aplicar formato a encabezados
@@ -320,8 +375,13 @@ if archivos_subidos:
                         worksheet.write(0, col_num, value, header_format)
                     
                     # Ajustar ancho de columnas
-                    worksheet.set_column('A:Q', 15)
+                    worksheet.set_column('A:A', 12)  # MES
+                    worksheet.set_column('B:M', 15)  # Resto
                     worksheet.set_column('N:N', 50)  # TRX_TEXT más ancho
+                    worksheet.set_column('O:Q', 15)  # Últimas columnas
+                    
+                    # Congelar primera fila
+                    worksheet.freeze_panes(1, 0)
                 
                 output.seek(0)
                 
@@ -333,7 +393,8 @@ if archivos_subidos:
                     data=output,
                     file_name=nombre_archivo,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary"
+                    type="primary",
+                    use_container_width=True
                 )
             else:
                 st.error("❌ Error al consolidar los archivos. Revisa el log de procesamiento.")
@@ -348,37 +409,28 @@ else:
         
         1. Haz clic en "Browse files" para seleccionar tus archivos Excel
         2. Puedes seleccionar múltiples archivos a la vez
-        3. Haz clic en "Consolidar archivos" para procesarlos
-        4. Revisa el log de procesamiento para verificar que todo está correcto
-        5. Descarga el archivo consolidado
+        3. **Activa el modo DEBUG** para ver las columnas de cada pestaña que se omite
+        4. Haz clic en "Consolidar archivos" para procesarlos
+        5. Revisa el log de procesamiento para ver qué pestañas se procesaron
+        6. Descarga el archivo consolidado
         
-        **Características:**
+        **Características principales:**
         
-        - ✅ **Busca en TODAS las pestañas** de cada archivo Excel automáticamente
+        - ✅ **Extrae datos de TODAS las pestañas válidas** de cada archivo Excel
+        - ✅ Si un Excel tiene 3 pestañas con datos, consolida las 3
+        - ✅ Modo DEBUG para ver exactamente qué columnas tiene cada pestaña
         - ✅ Acepta variantes de nombres de columnas (con espacios, guiones bajos, abreviadas)
         - ✅ Consolida datos de múltiples archivos y pestañas
         - ✅ Ordena por fecha (más reciente primero)
         - ✅ Calcula la columna MES automáticamente (formato MM/YYYY)
         
-        **Columnas del archivo consolidado:**
+        **Columnas requeridas:**
         
-        1. **MES** (calculada automáticamente)
-        2. ENTIDAD_LEGAL
-        3. NOMBRE_BANCO
-        4. CTA_BANCO
-        5. CTA_NUMERO
-        6. EXTRACTO_NUM
-        7. EXTRACTO_FECHA
-        8. EXT_LINEA_NUM
-        9. EXT_TIPO_TRX
-        10. TRX_CODE
-        11. EXT_LIN_MONTO
-        12. EXT_LIN_ID
-        13. STATUS
-        14. TRX_TEXT
-        15. NRO_DOCUMENTO
-        16. SOCIO_COMERCIAL
-        17. COMENTARIO_ESPERADO
+        ENTIDAD_LEGAL, NOMBRE_BANCO, CTA_BANCO, CTA_NUMERO, EXTRACTO_NUM,
+        EXTRACTO_FECHA, EXT_LINEA_NUM, EXT_TIPO_TRX, TRX_CODE, EXT_LIN_MONTO,
+        EXT_LIN_ID, STATUS, TRX_TEXT, NRO_DOCUMENTO, SOCIO_COMERCIAL, COMENTARIO_ESPERADO
+        
+        + columna MES (calculada automáticamente)
         """)
 
 # Footer

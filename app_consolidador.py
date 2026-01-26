@@ -16,25 +16,32 @@ st.set_page_config(
 st.title("🏦 Consolidador de Extractos Bancarios - Despegar")
 st.markdown("---")
 
-# MAPEO DE COLUMNAS: nombre_estandar -> [posibles_variantes]
-COLUMNAS_MAPPING = {
+# COLUMNAS OBLIGATORIAS (deben estar presentes)
+COLUMNAS_OBLIGATORIAS = {
     'ENTIDAD_LEGAL': ['ENTIDAD_LEGAL', 'ENTIDAD LEGAL'],
     'NOMBRE_BANCO': ['NOMBRE_BANCO', 'NOMBRE BANCO', 'NOMBRE_BAN', 'NOMBRE BAN'],
     'CTA_BANCO': ['CTA_BANCO', 'CTA BANCO', 'CTA_BANC', 'CTA BANC'],
     'CTA_NUMERO': ['CTA_NUMERO', 'CTA NUMERO', 'CTA_NUMEI', 'CTA NUMEI'],
-    'EXTRACTO_NUM': ['EXTRACTO_NUM', 'EXTRACTO NUM', 'EXTRACT'],
     'EXTRACTO_FECHA': ['EXTRACTO_FECHA', 'EXTRACTO FECHA', 'EXTRACT'],
-    'EXT_LINEA_NUM': ['EXT_LINEA_NUM', 'EXT LINEA NUM', 'EXT_LINE', 'EXT LINE'],
     'EXT_TIPO_TRX': ['EXT_TIPO_TRX', 'EXT TIPO TRX', 'EXT_TIPO', 'EXT TIPO'],
-    'TRX_CODE': ['TRX_CODE', 'TRX CODE'],
     'EXT_LIN_MONTO': ['EXT_LIN_MONTO', 'EXT LIN MONTO', 'EXT_LIN_MONT', 'EXT LIN MONT'],
-    'EXT_LIN_ID': ['EXT_LIN_ID', 'EXT LIN ID'],
     'STATUS': ['STATUS'],
     'TRX_TEXT': ['TRX_TEXT', 'TRX TEXT'],
-    'NRO_DOCUMENTO': ['NRO_DOCUMENTO', 'NRO DOCUMENTO', 'NRO_DO', 'NRO DO'],
-    'SOCIO_COMERCIAL': ['SOCIO_COMERCIAL', 'SOCIO COMERCIAL'],
     'COMENTARIO_ESPERADO': ['COMENTARIO_ESPERADO', 'COMENTARIO ESPERADO']
 }
+
+# COLUMNAS OPCIONALES (si no existen, se crean vacías)
+COLUMNAS_OPCIONALES = {
+    'EXTRACTO_NUM': ['EXTRACTO_NUM', 'EXTRACTO NUM', 'EXTRACT'],
+    'EXT_LINEA_NUM': ['EXT_LINEA_NUM', 'EXT LINEA NUM', 'EXT_LINE', 'EXT LINE'],
+    'TRX_CODE': ['TRX_CODE', 'TRX CODE'],
+    'EXT_LIN_ID': ['EXT_LIN_ID', 'EXT LIN ID'],
+    'NRO_DOCUMENTO': ['NRO_DOCUMENTO', 'NRO DOCUMENTO', 'NRO_DO', 'NRO DO'],
+    'SOCIO_COMERCIAL': ['SOCIO_COMERCIAL', 'SOCIO COMERCIAL']
+}
+
+# Combinar todas las columnas
+TODAS_LAS_COLUMNAS = {**COLUMNAS_OBLIGATORIAS, **COLUMNAS_OPCIONALES}
 
 # ORDEN FINAL DE COLUMNAS (con MES al inicio)
 COLUMNAS_FINALES = [
@@ -112,32 +119,54 @@ def procesar_pestaña(df, nombre_pestaña, nombre_archivo, modo_debug=False):
             for i, col in enumerate(df.columns, 1):
                 logs.append(f"       {i}. {col}")
         
-        # Buscar las columnas requeridas (incluyendo variantes)
+        # Buscar COLUMNAS OBLIGATORIAS
         columnas_encontradas = {}
-        columnas_faltantes = []
+        columnas_obligatorias_faltantes = []
         
-        for col_estandar, variantes in COLUMNAS_MAPPING.items():
+        for col_estandar, variantes in COLUMNAS_OBLIGATORIAS.items():
             col_encontrada = buscar_columna(df.columns, variantes)
             
             if col_encontrada:
                 columnas_encontradas[col_estandar] = col_encontrada
             else:
-                columnas_faltantes.append(col_estandar)
+                columnas_obligatorias_faltantes.append(col_estandar)
         
-        # Si faltan columnas, mostrar detalle
-        if columnas_faltantes:
-            logs.append(f"  ❌ Pestaña '{nombre_pestaña}': faltan {len(columnas_faltantes)} columnas")
+        # Si faltan columnas OBLIGATORIAS, rechazar la pestaña
+        if columnas_obligatorias_faltantes:
+            logs.append(f"  ❌ Pestaña '{nombre_pestaña}': faltan {len(columnas_obligatorias_faltantes)} columnas OBLIGATORIAS")
             if modo_debug:
-                logs.append(f"     Columnas faltantes:")
-                for col in columnas_faltantes:
-                    logs.append(f"       • {col} (buscadas: {', '.join(COLUMNAS_MAPPING[col])})")
-                logs.append(f"     Columnas encontradas: {len(columnas_encontradas)}/{len(COLUMNAS_MAPPING)}")
+                logs.append(f"     Columnas obligatorias faltantes:")
+                for col in columnas_obligatorias_faltantes:
+                    logs.append(f"       • {col} (buscadas: {', '.join(COLUMNAS_OBLIGATORIAS[col])})")
             return None, logs
         
-        # Extraer las columnas y renombrarlas al estándar
+        # Buscar COLUMNAS OPCIONALES
+        columnas_opcionales_faltantes = []
+        
+        for col_estandar, variantes in COLUMNAS_OPCIONALES.items():
+            col_encontrada = buscar_columna(df.columns, variantes)
+            
+            if col_encontrada:
+                columnas_encontradas[col_estandar] = col_encontrada
+            else:
+                columnas_opcionales_faltantes.append(col_estandar)
+        
+        # Informar sobre columnas opcionales faltantes
+        if columnas_opcionales_faltantes and modo_debug:
+            logs.append(f"  ⚠️ Columnas opcionales faltantes (se llenarán con vacíos):")
+            for col in columnas_opcionales_faltantes:
+                logs.append(f"     • {col}")
+        
+        # Extraer las columnas encontradas
         df_extraido = pd.DataFrame()
+        
         for col_estandar in COLUMNAS_FINALES[1:]:  # Excluir MES que se calculará
-            df_extraido[col_estandar] = df[columnas_encontradas[col_estandar]]
+            if col_estandar in columnas_encontradas:
+                # Columna existe, extraerla
+                df_extraido[col_estandar] = df[columnas_encontradas[col_estandar]]
+            else:
+                # Columna opcional faltante, crear vacía
+                df_extraido[col_estandar] = ''
         
         # Calcular la columna MES a partir de EXTRACTO_FECHA
         df_extraido['EXTRACTO_FECHA'] = pd.to_datetime(df_extraido['EXTRACTO_FECHA'], errors='coerce')
@@ -146,7 +175,8 @@ def procesar_pestaña(df, nombre_pestaña, nombre_archivo, modo_debug=False):
         # Reordenar columnas con MES al inicio
         df_extraido = df_extraido[COLUMNAS_FINALES]
         
-        logs.append(f"  ✅ Pestaña '{nombre_pestaña}': {len(df_extraido):,} filas extraídas")
+        mensaje_opcional = f" ({len(columnas_opcionales_faltantes)} col. opcionales vacías)" if columnas_opcionales_faltantes else ""
+        logs.append(f"  ✅ Pestaña '{nombre_pestaña}': {len(df_extraido):,} filas extraídas{mensaje_opcional}")
         return df_extraido, logs
         
     except Exception as e:
@@ -205,7 +235,7 @@ def procesar_archivo(archivo, logs, modo_debug=False):
             logs.append(f"  ✅ TOTAL del archivo: {len(df_final):,} filas de {len(pestañas_procesadas)} pestaña(s)")
             return df_final
         else:
-            logs.append(f"  ❌ No se encontraron pestañas válidas con las columnas requeridas")
+            logs.append(f"  ❌ No se encontraron pestañas válidas con las columnas obligatorias")
             return None
         
     except Exception as e:
@@ -224,6 +254,14 @@ def consolidar_archivos(archivos, modo_debug=False):
     
     logs.append("🔍 INICIANDO CONSOLIDACIÓN")
     logs.append(f"Archivos a procesar: {len(archivos)}")
+    logs.append("")
+    logs.append("📌 COLUMNAS OBLIGATORIAS (deben estar presentes):")
+    for col in COLUMNAS_OBLIGATORIAS.keys():
+        logs.append(f"  • {col}")
+    logs.append("")
+    logs.append("📌 COLUMNAS OPCIONALES (se llenan con vacío si faltan):")
+    for col in COLUMNAS_OPCIONALES.keys():
+        logs.append(f"  • {col}")
     
     for archivo in archivos:
         df = procesar_archivo(archivo, logs, modo_debug)
@@ -283,13 +321,10 @@ with st.expander("🔧 Información del sistema"):
 
 # Interfaz de usuario
 st.markdown("### 📁 Subir archivos Excel")
-st.info("💡 El sistema extrae automáticamente datos de TODAS las pestañas que contengan las columnas requeridas")
+st.info("💡 El sistema extrae datos de TODAS las pestañas que contengan las columnas OBLIGATORIAS")
 
 # Checkbox para modo debug
 modo_debug = st.checkbox("🐛 Activar modo DEBUG (mostrar todas las columnas de cada pestaña)", value=False)
-
-if modo_debug:
-    st.warning("⚠️ Modo DEBUG activado: se mostrarán todas las columnas encontradas en cada pestaña")
 
 archivos_subidos = st.file_uploader(
     "Selecciona uno o más archivos Excel (.xlsx) con extractos bancarios",
@@ -315,7 +350,7 @@ if archivos_subidos:
                         st.warning(log)
                     elif "❌" in log:
                         st.error(log)
-                    elif "🔍" in log or "📋" in log or "🔄" in log or "📁" in log:
+                    elif "🔍" in log or "📋" in log or "🔄" in log or "📁" in log or "📌" in log:
                         st.info(log)
                     elif log.strip().startswith("="):
                         st.markdown(f"```\n{log}\n```")
@@ -409,28 +444,27 @@ else:
         
         1. Haz clic en "Browse files" para seleccionar tus archivos Excel
         2. Puedes seleccionar múltiples archivos a la vez
-        3. **Activa el modo DEBUG** para ver las columnas de cada pestaña que se omite
-        4. Haz clic en "Consolidar archivos" para procesarlos
-        5. Revisa el log de procesamiento para ver qué pestañas se procesaron
-        6. Descarga el archivo consolidado
+        3. Haz clic en "Consolidar archivos" para procesarlos
+        4. Revisa el log de procesamiento
+        5. Descarga el archivo consolidado
         
-        **Características principales:**
+        **Características:**
         
-        - ✅ **Extrae datos de TODAS las pestañas válidas** de cada archivo Excel
-        - ✅ Si un Excel tiene 3 pestañas con datos, consolida las 3
-        - ✅ Modo DEBUG para ver exactamente qué columnas tiene cada pestaña
-        - ✅ Acepta variantes de nombres de columnas (con espacios, guiones bajos, abreviadas)
-        - ✅ Consolida datos de múltiples archivos y pestañas
+        - ✅ **Extrae de TODAS las pestañas** que tengan las columnas obligatorias
+        - ✅ **Columnas opcionales**: si faltan, se llenan con vacío
+        - ✅ Procesa pestañas como "BTG" y "Bogota 7674" que tienen estructura parcial
+        - ✅ Consolida múltiples pestañas por archivo
         - ✅ Ordena por fecha (más reciente primero)
-        - ✅ Calcula la columna MES automáticamente (formato MM/YYYY)
+        - ✅ Calcula la columna MES automáticamente
         
-        **Columnas requeridas:**
+        **Columnas OBLIGATORIAS (deben estar):**
         
-        ENTIDAD_LEGAL, NOMBRE_BANCO, CTA_BANCO, CTA_NUMERO, EXTRACTO_NUM,
-        EXTRACTO_FECHA, EXT_LINEA_NUM, EXT_TIPO_TRX, TRX_CODE, EXT_LIN_MONTO,
-        EXT_LIN_ID, STATUS, TRX_TEXT, NRO_DOCUMENTO, SOCIO_COMERCIAL, COMENTARIO_ESPERADO
+        ENTIDAD_LEGAL, NOMBRE_BANCO, CTA_BANCO, CTA_NUMERO, EXTRACTO_FECHA,
+        EXT_TIPO_TRX, EXT_LIN_MONTO, STATUS, TRX_TEXT, COMENTARIO_ESPERADO
         
-        + columna MES (calculada automáticamente)
+        **Columnas OPCIONALES (se llenan con vacío si faltan):**
+        
+        EXTRACTO_NUM, EXT_LINEA_NUM, TRX_CODE, EXT_LIN_ID, NRO_DOCUMENTO, SOCIO_COMERCIAL
         """)
 
 # Footer

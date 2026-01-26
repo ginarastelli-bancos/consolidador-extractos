@@ -16,27 +16,27 @@ st.set_page_config(
 st.title("🏦 Consolidador de Extractos Bancarios - Despegar")
 st.markdown("---")
 
-# COLUMNAS EXACTAS DEL EXCEL (sin MES, se calculará)
-COLUMNAS_EXCEL = [
-    'ENTIDAD_LEGAL',
-    'NOMBRE_BANCO',
-    'CTA_BANCO',
-    'CTA_NUMERO',
-    'EXTRACTO_NUM',
-    'EXTRACTO_FECHA',
-    'EXT_LINEA_NUM',
-    'EXT_TIPO_TRX',
-    'TRX_CODE',
-    'EXT_LIN_MONTO',
-    'EXT_LIN_ID',
-    'STATUS',
-    'TRX_TEXT',
-    'NRO_DOCUMENTO',
-    'SOCIO_COMERCIAL',
-    'COMENTARIO_ESPERADO'
-]
+# MAPEO DE COLUMNAS: nombre_estandar -> [posibles_variantes]
+COLUMNAS_MAPPING = {
+    'ENTIDAD_LEGAL': ['ENTIDAD_LEGAL', 'ENTIDAD LEGAL'],
+    'NOMBRE_BANCO': ['NOMBRE_BANCO', 'NOMBRE BANCO', 'NOMBRE_BAN', 'NOMBRE BAN'],
+    'CTA_BANCO': ['CTA_BANCO', 'CTA BANCO', 'CTA_BANC', 'CTA BANC'],
+    'CTA_NUMERO': ['CTA_NUMERO', 'CTA NUMERO', 'CTA_NUMEI', 'CTA NUMEI'],
+    'EXTRACTO_NUM': ['EXTRACTO_NUM', 'EXTRACTO NUM', 'EXTRACT'],
+    'EXTRACTO_FECHA': ['EXTRACTO_FECHA', 'EXTRACTO FECHA', 'EXTRACT'],
+    'EXT_LINEA_NUM': ['EXT_LINEA_NUM', 'EXT LINEA NUM', 'EXT_LINE', 'EXT LINE'],
+    'EXT_TIPO_TRX': ['EXT_TIPO_TRX', 'EXT TIPO TRX', 'EXT_TIPO', 'EXT TIPO'],
+    'TRX_CODE': ['TRX_CODE', 'TRX CODE'],
+    'EXT_LIN_MONTO': ['EXT_LIN_MONTO', 'EXT LIN MONTO', 'EXT_LIN_MONT', 'EXT LIN MONT'],
+    'EXT_LIN_ID': ['EXT_LIN_ID', 'EXT LIN ID'],
+    'STATUS': ['STATUS'],
+    'TRX_TEXT': ['TRX_TEXT', 'TRX TEXT'],
+    'NRO_DOCUMENTO': ['NRO_DOCUMENTO', 'NRO DOCUMENTO', 'NRO_DO', 'NRO DO'],
+    'SOCIO_COMERCIAL': ['SOCIO_COMERCIAL', 'SOCIO COMERCIAL'],
+    'COMENTARIO_ESPERADO': ['COMENTARIO_ESPERADO', 'COMENTARIO ESPERADO']
+}
 
-# ORDEN FINAL DE COLUMNAS EN EL CONSOLIDADO (con MES al inicio)
+# ORDEN FINAL DE COLUMNAS (con MES al inicio)
 COLUMNAS_FINALES = [
     'MES',
     'ENTIDAD_LEGAL',
@@ -74,6 +74,24 @@ def calcular_mes(fecha):
     except:
         return None
 
+def normalizar_nombre(nombre):
+    """
+    Normaliza un nombre de columna eliminando espacios, guiones bajos y puntos.
+    """
+    return str(nombre).strip().upper().replace('_', '').replace(' ', '').replace('.', '')
+
+def buscar_columna(df_columns, variantes):
+    """
+    Busca una columna entre sus posibles variantes.
+    """
+    for variante in variantes:
+        variante_normalizada = normalizar_nombre(variante)
+        for col in df_columns:
+            col_normalizada = normalizar_nombre(col)
+            if col_normalizada == variante_normalizada:
+                return col
+    return None
+
 def procesar_archivo(archivo, logs):
     """
     Procesa un archivo Excel y extrae las columnas requeridas.
@@ -105,41 +123,32 @@ def procesar_archivo(archivo, logs):
                 logs.append(f"  - {error}")
             return None
         
-        # Limpiar espacios en nombres de columnas
-        df.columns = df.columns.str.strip()
-        
-        # Buscar las columnas requeridas (sin importar mayúsculas)
+        # Buscar las columnas requeridas (incluyendo variantes)
         columnas_encontradas = {}
         columnas_faltantes = []
         
-        for col_requerida in COLUMNAS_EXCEL:
-            col_encontrada = None
-            for col in df.columns:
-                if str(col).strip().upper() == col_requerida.upper():
-                    col_encontrada = col
-                    break
+        for col_estandar, variantes in COLUMNAS_MAPPING.items():
+            col_encontrada = buscar_columna(df.columns, variantes)
             
             if col_encontrada:
-                columnas_encontradas[col_requerida] = col_encontrada
+                columnas_encontradas[col_estandar] = col_encontrada
             else:
-                columnas_faltantes.append(col_requerida)
+                columnas_faltantes.append(col_estandar)
         
         # Si faltan columnas, mostrar info
         if columnas_faltantes:
             logs.append(f"{archivo.name}: ⚠️ Faltan columnas:")
             for col in columnas_faltantes:
-                logs.append(f"  - {col}")
-            logs.append(f"  Columnas disponibles en el archivo:")
-            for col in df.columns[:10]:  # Mostrar solo las primeras 10
-                logs.append(f"    • {col}")
-            if len(df.columns) > 10:
-                logs.append(f"    ... y {len(df.columns) - 10} más")
+                logs.append(f"  - {col} (variantes buscadas: {', '.join(COLUMNAS_MAPPING[col])})")
+            logs.append(f"  Columnas ENCONTRADAS en el archivo:")
+            for i, col in enumerate(df.columns, 1):
+                logs.append(f"    {i}. [{col}] (normalizada: {normalizar_nombre(col)})")
             return None
         
-        # Extraer las columnas en el orden requerido
+        # Extraer las columnas y renombrarlas al estándar
         df_extraido = pd.DataFrame()
-        for col_requerida in COLUMNAS_EXCEL:
-            df_extraido[col_requerida] = df[columnas_encontradas[col_requerida]]
+        for col_estandar in COLUMNAS_FINALES[1:]:  # Excluir MES que se calculará
+            df_extraido[col_estandar] = df[columnas_encontradas[col_estandar]]
         
         # Calcular la columna MES a partir de EXTRACTO_FECHA
         df_extraido['EXTRACTO_FECHA'] = pd.to_datetime(df_extraido['EXTRACTO_FECHA'], errors='coerce')
@@ -212,9 +221,9 @@ with st.expander("🔧 Información del sistema (debug)"):
     
     st.code("\n".join(engines_disponibles))
     
-    st.markdown("**Columnas esperadas (se añadirá MES automáticamente):**")
-    for i, col in enumerate(COLUMNAS_EXCEL, 1):
-        st.text(f"{i}. {col}")
+    st.markdown("**Columnas esperadas (con variantes aceptadas):**")
+    for col_estandar, variantes in COLUMNAS_MAPPING.items():
+        st.text(f"• {col_estandar}: {', '.join(variantes)}")
     st.info("La columna MES se calcula automáticamente a partir de EXTRACTO_FECHA")
 
 # Interfaz de usuario
@@ -256,7 +265,10 @@ if archivos_subidos:
                 if 'MES' in df_consolidado.columns:
                     st.markdown("### 📅 Resumen por mes")
                     resumen_mes = df_consolidado['MES'].value_counts().sort_index(ascending=False)
-                    st.dataframe(resumen_mes.reset_index(), use_container_width=True)
+                    col1, col2 = st.columns([1, 2])
+                    with col1:
+                        st.dataframe(resumen_mes.reset_index().rename(columns={'MES': 'Mes', 'count': 'Cantidad'}), 
+                                   use_container_width=True, hide_index=True)
                 
                 # Botón de descarga
                 output = BytesIO()
@@ -334,7 +346,7 @@ else:
         
         **Notas:**
         - Las columnas pueden estar en cualquier orden en los archivos originales
-        - Los nombres de columnas deben coincidir exactamente
+        - Se aceptan variantes de nombres de columnas (con espacios, guiones bajos, abreviadas)
         - El consolidado ordena los datos por fecha (más reciente primero)
         - La columna MES se calcula automáticamente en formato MM/YYYY
         """)

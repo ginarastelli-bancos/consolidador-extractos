@@ -1,13 +1,3 @@
-import subprocess
-import sys
-
-# Instalar openpyxl si no está disponible
-try:
-    import openpyxl
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
-    import openpyxl
-
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -39,7 +29,7 @@ def procesar_archivo(archivo, logs):
     Procesa un archivo Excel y extrae las columnas requeridas.
     """
     try:
-        # Leer el archivo Excel
+        # Leer el archivo Excel con openpyxl
         df = pd.read_excel(archivo, sheet_name=0, engine='openpyxl')
         
         # Buscar las columnas requeridas (sin importar el orden)

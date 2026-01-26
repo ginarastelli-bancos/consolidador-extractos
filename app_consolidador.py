@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
+import warnings
+warnings.filterwarnings('ignore')
 
 # Configuración de la página
 st.set_page_config(
@@ -27,10 +29,41 @@ COLUMNAS_REQUERIDAS = [
 def procesar_archivo(archivo, logs):
     """
     Procesa un archivo Excel y extrae las columnas requeridas.
+    Intenta múltiples métodos de lectura.
     """
     try:
-        # Leer el archivo Excel con openpyxl
-        df = pd.read_excel(archivo, sheet_name=0, engine='openpyxl')
+        # Reiniciar el puntero del archivo
+        archivo.seek(0)
+        
+        # Intentar leer con diferentes engines
+        df = None
+        errores = []
+        
+        # Método 1: Sin especificar engine (usa el disponible)
+        try:
+            df = pd.read_excel(archivo, sheet_name=0)
+        except Exception as e1:
+            errores.append(f"Método 1: {str(e1)}")
+            
+            # Método 2: Intentar con xlrd
+            try:
+                archivo.seek(0)
+                df = pd.read_excel(archivo, sheet_name=0, engine='xlrd')
+            except Exception as e2:
+                errores.append(f"Método 2: {str(e2)}")
+                
+                # Método 3: Intentar con openpyxl explícitamente
+                try:
+                    archivo.seek(0)
+                    df = pd.read_excel(archivo, sheet_name=0, engine='openpyxl')
+                except Exception as e3:
+                    errores.append(f"Método 3: {str(e3)}")
+        
+        if df is None:
+            logs.append(f"{archivo.name}: ❌ No se pudo leer el archivo")
+            for error in errores:
+                logs.append(f"  - {error}")
+            return None
         
         # Buscar las columnas requeridas (sin importar el orden)
         columnas_encontradas = {}
@@ -50,6 +83,7 @@ def procesar_archivo(archivo, logs):
         # Si no se encontraron todas las columnas requeridas
         if len(columnas_encontradas) < len(COLUMNAS_REQUERIDAS):
             logs.append(f"{archivo.name}: ❌ Faltan columnas requeridas")
+            logs.append(f"  Columnas disponibles: {', '.join([str(c) for c in df.columns])}")
             return None
         
         # Extraer las columnas en el orden requerido
@@ -61,7 +95,7 @@ def procesar_archivo(archivo, logs):
         return df_extraido
         
     except Exception as e:
-        logs.append(f"{archivo.name}: ❌ Error al leer archivo: {str(e)}")
+        logs.append(f"{archivo.name}: ❌ Error inesperado: {str(e)}")
         return None
 
 def consolidar_archivos(archivos):
@@ -83,6 +117,34 @@ def consolidar_archivos(archivos):
     else:
         logs.append("\n❌ No se pudieron extraer datos")
         return None, logs
+
+# Mostrar información de dependencias instaladas
+with st.expander("🔧 Información del sistema (debug)"):
+    import sys
+    st.code(f"Python: {sys.version}")
+    st.code(f"Pandas: {pd.__version__}")
+    
+    # Verificar qué engines están disponibles
+    engines_disponibles = []
+    try:
+        import openpyxl
+        engines_disponibles.append(f"openpyxl: {openpyxl.__version__}")
+    except:
+        engines_disponibles.append("openpyxl: NO DISPONIBLE")
+    
+    try:
+        import xlrd
+        engines_disponibles.append(f"xlrd: {xlrd.__version__}")
+    except:
+        engines_disponibles.append("xlrd: NO DISPONIBLE")
+    
+    try:
+        import xlsxwriter
+        engines_disponibles.append(f"xlsxwriter: {xlsxwriter.__version__}")
+    except:
+        engines_disponibles.append("xlsxwriter: NO DISPONIBLE")
+    
+    st.code("\n".join(engines_disponibles))
 
 # Interfaz de usuario
 st.markdown("### 📁 Subir archivos Excel")

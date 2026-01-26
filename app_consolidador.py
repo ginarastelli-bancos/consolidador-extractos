@@ -3,6 +3,19 @@
 CONSOLIDADOR DE EXTRACTOS BANCARIOS - DESPEGAR
 Busca columnas POR NOMBRE sin importar el orden en el Excel original
 """
+import subprocess
+import sys
+
+# Instalar openpyxl si no está disponible
+try:
+    import openpyxl
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
+    import openpyxl
+
+import streamlit as st
+import pandas as pd
+# ... resto de tus imports
 
 import streamlit as st
 import pandas as pd

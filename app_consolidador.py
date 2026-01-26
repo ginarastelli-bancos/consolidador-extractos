@@ -92,37 +92,13 @@ def buscar_columna(df_columns, variantes):
                 return col
     return None
 
-def procesar_archivo(archivo, logs):
+def procesar_pestaña(df, nombre_pestaña, nombre_archivo):
     """
-    Procesa un archivo Excel y extrae las columnas requeridas.
+    Procesa una pestaña de Excel y extrae las columnas requeridas.
     """
+    logs = []
+    
     try:
-        # Reiniciar el puntero del archivo
-        archivo.seek(0)
-        
-        # Intentar leer con diferentes engines
-        df = None
-        errores = []
-        
-        # Método 1: Sin especificar engine
-        try:
-            df = pd.read_excel(archivo, sheet_name=0)
-        except Exception as e1:
-            errores.append(f"Método 1: {str(e1)}")
-            
-            # Método 2: Con openpyxl
-            try:
-                archivo.seek(0)
-                df = pd.read_excel(archivo, sheet_name=0, engine='openpyxl')
-            except Exception as e2:
-                errores.append(f"Método 2: {str(e2)}")
-        
-        if df is None:
-            logs.append(f"{archivo.name}: ❌ No se pudo leer el archivo")
-            for error in errores:
-                logs.append(f"  - {error}")
-            return None
-        
         # Buscar las columnas requeridas (incluyendo variantes)
         columnas_encontradas = {}
         columnas_faltantes = []
@@ -135,15 +111,9 @@ def procesar_archivo(archivo, logs):
             else:
                 columnas_faltantes.append(col_estandar)
         
-        # Si faltan columnas, mostrar info
+        # Si faltan columnas, esta pestaña no es válida
         if columnas_faltantes:
-            logs.append(f"{archivo.name}: ⚠️ Faltan columnas:")
-            for col in columnas_faltantes:
-                logs.append(f"  - {col} (variantes buscadas: {', '.join(COLUMNAS_MAPPING[col])})")
-            logs.append(f"  Columnas ENCONTRADAS en el archivo:")
-            for i, col in enumerate(df.columns, 1):
-                logs.append(f"    {i}. [{col}] (normalizada: {normalizar_nombre(col)})")
-            return None
+            return None, logs
         
         # Extraer las columnas y renombrarlas al estándar
         df_extraido = pd.DataFrame()
@@ -157,8 +127,66 @@ def procesar_archivo(archivo, logs):
         # Reordenar columnas con MES al inicio
         df_extraido = df_extraido[COLUMNAS_FINALES]
         
-        logs.append(f"{archivo.name}: ✅ Procesado correctamente ({len(df_extraido)} filas)")
-        return df_extraido
+        logs.append(f"  ✅ Pestaña '{nombre_pestaña}': {len(df_extraido)} filas procesadas")
+        return df_extraido, logs
+        
+    except Exception as e:
+        logs.append(f"  ❌ Pestaña '{nombre_pestaña}': Error - {str(e)}")
+        return None, logs
+
+def procesar_archivo(archivo, logs):
+    """
+    Procesa un archivo Excel buscando en TODAS sus pestañas.
+    """
+    try:
+        # Reiniciar el puntero del archivo
+        archivo.seek(0)
+        
+        # Leer el archivo Excel
+        try:
+            xls = pd.ExcelFile(archivo, engine='openpyxl')
+        except Exception as e:
+            logs.append(f"{archivo.name}: ❌ No se pudo abrir el archivo: {str(e)}")
+            return None
+        
+        # Listar todas las pestañas
+        pestañas = xls.sheet_names
+        logs.append(f"{archivo.name}: 📋 Pestañas encontradas: {', '.join(pestañas)}")
+        
+        # Procesar cada pestaña
+        datos_validos = []
+        
+        for nombre_pestaña in pestañas:
+            try:
+                df = pd.read_excel(xls, sheet_name=nombre_pestaña)
+                
+                # Verificar que no esté vacío
+                if df.empty:
+                    logs.append(f"  ⚠️ Pestaña '{nombre_pestaña}': vacía, omitiendo")
+                    continue
+                
+                # Intentar procesar esta pestaña
+                df_procesado, logs_pestaña = procesar_pestaña(df, nombre_pestaña, archivo.name)
+                logs.extend(logs_pestaña)
+                
+                if df_procesado is not None:
+                    datos_validos.append(df_procesado)
+                    
+            except Exception as e:
+                logs.append(f"  ⚠️ Pestaña '{nombre_pestaña}': Error al leer - {str(e)}")
+                continue
+        
+        # Consolidar datos de todas las pestañas válidas
+        if datos_validos:
+            df_final = pd.concat(datos_validos, ignore_index=True)
+            logs.append(f"{archivo.name}: ✅ Total procesado: {len(df_final)} filas de {len(datos_validos)} pestaña(s)")
+            return df_final
+        else:
+            logs.append(f"{archivo.name}: ❌ No se encontraron pestañas con las columnas requeridas")
+            logs.append(f"  Columnas buscadas:")
+            for col in COLUMNAS_FINALES[1:]:
+                logs.append(f"    • {col}")
+            return None
         
     except Exception as e:
         logs.append(f"{archivo.name}: ❌ Error inesperado: {str(e)}")
@@ -187,10 +215,10 @@ def consolidar_archivos(archivos):
         except:
             logs.append("⚠️ No se pudo ordenar por fecha")
         
-        logs.append(f"\n✅ Consolidación completada: {len(df_final)} filas totales")
+        logs.append(f"\n✅ Consolidación completada: {len(df_final)} filas totales de {len(datos_consolidados)} archivo(s)")
         return df_final, logs
     else:
-        logs.append("\n❌ No se pudieron extraer datos")
+        logs.append("\n❌ No se pudieron extraer datos de ningún archivo")
         return None, logs
 
 # Mostrar información de dependencias instaladas
@@ -224,7 +252,7 @@ with st.expander("🔧 Información del sistema (debug)"):
     st.markdown("**Columnas esperadas (con variantes aceptadas):**")
     for col_estandar, variantes in COLUMNAS_MAPPING.items():
         st.text(f"• {col_estandar}: {', '.join(variantes)}")
-    st.info("La columna MES se calcula automáticamente a partir de EXTRACTO_FECHA")
+    st.info("⚠️ El sistema busca en TODAS las pestañas de cada archivo Excel")
 
 # Interfaz de usuario
 st.markdown("### 📁 Subir archivos Excel")
@@ -324,9 +352,17 @@ else:
         4. Revisa el log de procesamiento para verificar que todo está correcto
         5. Descarga el archivo consolidado
         
+        **Características:**
+        
+        - ✅ **Busca en TODAS las pestañas** de cada archivo Excel automáticamente
+        - ✅ Acepta variantes de nombres de columnas (con espacios, guiones bajos, abreviadas)
+        - ✅ Consolida datos de múltiples archivos y pestañas
+        - ✅ Ordena por fecha (más reciente primero)
+        - ✅ Calcula la columna MES automáticamente (formato MM/YYYY)
+        
         **Columnas del archivo consolidado:**
         
-        1. **MES** (calculada automáticamente desde EXTRACTO_FECHA)
+        1. **MES** (calculada automáticamente)
         2. ENTIDAD_LEGAL
         3. NOMBRE_BANCO
         4. CTA_BANCO
@@ -343,12 +379,6 @@ else:
         15. NRO_DOCUMENTO
         16. SOCIO_COMERCIAL
         17. COMENTARIO_ESPERADO
-        
-        **Notas:**
-        - Las columnas pueden estar en cualquier orden en los archivos originales
-        - Se aceptan variantes de nombres de columnas (con espacios, guiones bajos, abreviadas)
-        - El consolidado ordena los datos por fecha (más reciente primero)
-        - La columna MES se calcula automáticamente en formato MM/YYYY
         """)
 
 # Footer

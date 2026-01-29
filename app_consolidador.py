@@ -33,18 +33,17 @@ COLUMNAS_OBLIGATORIAS = {
     'COMENTARIO_ESPERADO': ['COMENTARIO_ESPERADO', 'COMENTARIO ESPERADO']
 }
 
-# COLUMNAS OPCIONALES (AGREGADA: INFORMACION_ADICIONAL)
+# COLUMNAS OPCIONALES
 COLUMNAS_OPCIONALES = {
     'EXTRACTO_NUM': ['EXTRACTO_NUM', 'EXTRACTO NUM', 'EXTRACT'],
     'EXT_LINEA_NUM': ['EXT_LINEA_NUM', 'EXT LINEA NUM', 'EXT_LINE', 'EXT LINE'],
     'TRX_CODE': ['TRX_CODE', 'TRX CODE'],
     'EXT_LIN_ID': ['EXT_LIN_ID', 'EXT LIN ID'],
     'NRO_DOCUMENTO': ['NRO_DOCUMENTO', 'NRO DOCUMENTO', 'NRO_DO', 'NRO DO'],
-    'SOCIO_COMERCIAL': ['SOCIO_COMERCIAL', 'SOCIO COMERCIAL'],
-    'INFORMACION_ADICIONAL': ['INFORMACION_ADICIONAL', 'INFORMACION ADICIONAL', 'INFO_ADICIONAL', 'INFO ADICIONAL', 'INFORMACION_ADIC', 'INFORMACION ADIC']
+    'SOCIO_COMERCIAL': ['SOCIO_COMERCIAL', 'SOCIO COMERCIAL']
 }
 
-# ORDEN FINAL DE COLUMNAS (AGREGADA: INFORMACION_ADICIONAL al final)
+# ORDEN FINAL DE COLUMNAS
 COLUMNAS_FINALES = [
     'MES',
     'ENTIDAD_LEGAL',
@@ -62,8 +61,7 @@ COLUMNAS_FINALES = [
     'TRX_TEXT',
     'NRO_DOCUMENTO',
     'SOCIO_COMERCIAL',
-    'COMENTARIO_ESPERADO',
-    'INFORMACION_ADICIONAL'
+    'COMENTARIO_ESPERADO'
 ]
 
 def calcular_mes(fecha):
@@ -323,12 +321,10 @@ if archivos_subidos:
                     for col_num, value in enumerate(df_consolidado.columns.values):
                         worksheet.write(0, col_num, value, header_format)
                     
-                    # Ajustar anchos de columna (incluye INFORMACION_ADICIONAL)
-                    worksheet.set_column('A:A', 12)   # MES
-                    worksheet.set_column('B:M', 15)   # Columnas estándar
-                    worksheet.set_column('N:N', 50)   # TRX_TEXT
-                    worksheet.set_column('O:Q', 15)   # NRO_DOCUMENTO, SOCIO_COMERCIAL, COMENTARIO_ESPERADO
-                    worksheet.set_column('R:R', 40)   # INFORMACION_ADICIONAL (más ancha)
+                    worksheet.set_column('A:A', 12)
+                    worksheet.set_column('B:M', 15)
+                    worksheet.set_column('N:N', 50)
+                    worksheet.set_column('O:Q', 15)
                     worksheet.freeze_panes(1, 0)
                 
                 output.seek(0)
@@ -358,13 +354,12 @@ else:
         - ✅ Genera columna MES automáticamente
         - ✅ Ordena por fecha (más reciente primero)
         - ✅ Formato Excel profesional
-        - ✅ **Incluye columna INFORMACION_ADICIONAL**
         
         **Columnas obligatorias:** ENTIDAD_LEGAL, NOMBRE_BANCO, CTA_BANCO, CTA_NUMERO, 
         EXTRACTO_FECHA, EXT_TIPO_TRX, EXT_LIN_MONTO, STATUS, TRX_TEXT, COMENTARIO_ESPERADO
         
         **Columnas opcionales:** EXTRACTO_NUM, EXT_LINEA_NUM, TRX_CODE, EXT_LIN_ID, 
-        NRO_DOCUMENTO, SOCIO_COMERCIAL, **INFORMACION_ADICIONAL**
+        NRO_DOCUMENTO, SOCIO_COMERCIAL
         """)
 
 st.markdown("---")

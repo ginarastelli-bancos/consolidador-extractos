@@ -33,7 +33,7 @@ COLUMNAS_OBLIGATORIAS = {
     'COMENTARIO_ESPERADO': ['COMENTARIO_ESPERADO', 'COMENTARIO ESPERADO']
 }
 
-# COLUMNAS OPCIONALES (AGREGADA: INFORMACION_ADICIONAL)
+# COLUMNAS OPCIONALES
 COLUMNAS_OPCIONALES = {
     'EXTRACTO_NUM': ['EXTRACTO_NUM', 'EXTRACTO NUM', 'EXTRACT'],
     'EXT_LINEA_NUM': ['EXT_LINEA_NUM', 'EXT LINEA NUM', 'EXT_LINE', 'EXT LINE'],
@@ -44,7 +44,26 @@ COLUMNAS_OPCIONALES = {
     'INFORMACION_ADICIONAL': ['INFORMACION_ADICIONAL', 'INFORMACION ADICIONAL', 'INFO_ADICIONAL', 'INFO ADICIONAL', 'INFORMACION_ADIC', 'INFORMACION ADIC']
 }
 
-# ORDEN FINAL DE COLUMNAS (AGREGADA: INFORMACION_ADICIONAL al final)
+# COLUMNAS QUE DEBEN SER TEXTO (preservar formato original)
+COLUMNAS_FORMATO_TEXTO = [
+    'ENTIDAD_LEGAL',
+    'NOMBRE_BANCO',
+    'CTA_BANCO',          # ⭐ Importante: preservar ceros iniciales
+    'CTA_NUMERO',         # ⭐ Importante: preservar ceros iniciales
+    'EXTRACTO_NUM',
+    'EXT_LINEA_NUM',
+    'EXT_TIPO_TRX',
+    'TRX_CODE',
+    'EXT_LIN_ID',
+    'STATUS',
+    'TRX_TEXT',
+    'NRO_DOCUMENTO',
+    'SOCIO_COMERCIAL',
+    'COMENTARIO_ESPERADO',
+    'INFORMACION_ADICIONAL'
+]
+
+# ORDEN FINAL DE COLUMNAS
 COLUMNAS_FINALES = [
     'MES',
     'ENTIDAD_LEGAL',
@@ -99,6 +118,14 @@ def es_pestaña_excluida(nombre_pestaña):
             return True
     return False
 
+def crear_converters(columnas_originales, columnas_encontradas):
+    """Crea converters para leer columnas como texto"""
+    converters = {}
+    for col_estandar, col_original in columnas_encontradas.items():
+        if col_estandar in COLUMNAS_FORMATO_TEXTO:
+            converters[col_original] = lambda x: str(x) if pd.notna(x) and x != '' else ''
+    return converters
+
 def procesar_pestaña(df, nombre_pestaña):
     """Procesa una pestaña de Excel"""
     logs = []
@@ -131,11 +158,18 @@ def procesar_pestaña(df, nombre_pestaña):
             else:
                 columnas_opcionales_faltantes.append(col_estandar)
         
-        # Extraer columnas
+        # Extraer columnas preservando el formato
         df_extraido = pd.DataFrame()
         for col_estandar in COLUMNAS_FINALES[1:]:
             if col_estandar in columnas_encontradas:
-                df_extraido[col_estandar] = df[columnas_encontradas[col_estandar]]
+                col_original = columnas_encontradas[col_estandar]
+                # Convertir a texto si está en la lista de columnas de texto
+                if col_estandar in COLUMNAS_FORMATO_TEXTO:
+                    df_extraido[col_estandar] = df[col_original].apply(
+                        lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != '' and str(x).lower() != 'nan' else ''
+                    )
+                else:
+                    df_extraido[col_estandar] = df[col_original]
             else:
                 df_extraido[col_estandar] = ''
         
@@ -178,7 +212,8 @@ def procesar_archivo(archivo, logs):
         
         for nombre_pestaña in pestañas_a_procesar:
             try:
-                df = pd.read_excel(xls, sheet_name=nombre_pestaña)
+                # Leer con dtype='object' para preservar el formato original
+                df = pd.read_excel(xls, sheet_name=nombre_pestaña, dtype=str)
                 df_procesado, logs_pestaña = procesar_pestaña(df, nombre_pestaña)
                 logs.extend(logs_pestaña)
                 
@@ -223,6 +258,7 @@ def consolidar_archivos(archivos):
         
         # Ordenar por fecha
         try:
+            df_final['EXTRACTO_FECHA'] = pd.to_datetime(df_final['EXTRACTO_FECHA'], errors='coerce')
             df_final = df_final.sort_values('EXTRACTO_FECHA', ascending=False)
         except:
             pass
@@ -311,6 +347,7 @@ if archivos_subidos:
                     workbook = writer.book
                     worksheet = writer.sheets['Consolidado']
                     
+                    # Formato para encabezados
                     header_format = workbook.add_format({
                         'bold': True,
                         'bg_color': '#0066CC',
@@ -320,15 +357,66 @@ if archivos_subidos:
                         'valign': 'vcenter'
                     })
                     
+                    # Formato de texto (preserva ceros iniciales y formato original)
+                    text_format = workbook.add_format({
+                        'num_format': '@',  # @ = formato de texto en Excel
+                        'align': 'left'
+                    })
+                    
+                    # Formato de fecha
+                    date_format = workbook.add_format({
+                        'num_format': 'dd/mm/yyyy',
+                        'align': 'center'
+                    })
+                    
+                    # Formato de número/monto
+                    number_format = workbook.add_format({
+                        'num_format': '#,##0.00',
+                        'align': 'right'
+                    })
+                    
+                    # Escribir encabezados
                     for col_num, value in enumerate(df_consolidado.columns.values):
                         worksheet.write(0, col_num, value, header_format)
                     
-                    # Ajustar anchos de columna (incluye INFORMACION_ADICIONAL)
+                    # Aplicar formatos a columnas específicas
+                    num_rows = len(df_consolidado)
+                    
+                    for col_num, col_name in enumerate(df_consolidado.columns):
+                        if col_name in COLUMNAS_FORMATO_TEXTO:
+                            # Aplicar formato de texto
+                            worksheet.set_column(col_num, col_num, None, text_format)
+                            # Escribir cada celda como texto
+                            for row_num in range(1, num_rows + 1):
+                                value = df_consolidado.iloc[row_num - 1, col_num]
+                                worksheet.write_string(row_num, col_num, str(value) if pd.notna(value) else '', text_format)
+                        elif col_name == 'EXTRACTO_FECHA':
+                            # Formato de fecha
+                            worksheet.set_column(col_num, col_num, 12, date_format)
+                        elif col_name == 'EXT_LIN_MONTO':
+                            # Formato numérico para montos
+                            worksheet.set_column(col_num, col_num, 15, number_format)
+                    
+                    # Ajustar anchos de columna
                     worksheet.set_column('A:A', 12)   # MES
-                    worksheet.set_column('B:M', 15)   # Columnas estándar
+                    worksheet.set_column('B:B', 20)   # ENTIDAD_LEGAL
+                    worksheet.set_column('C:C', 20)   # NOMBRE_BANCO
+                    worksheet.set_column('D:D', 15)   # CTA_BANCO
+                    worksheet.set_column('E:E', 20)   # CTA_NUMERO
+                    worksheet.set_column('F:F', 15)   # EXTRACTO_NUM
+                    worksheet.set_column('G:G', 15)   # EXTRACTO_FECHA
+                    worksheet.set_column('H:H', 15)   # EXT_LINEA_NUM
+                    worksheet.set_column('I:I', 12)   # EXT_TIPO_TRX
+                    worksheet.set_column('J:J', 12)   # TRX_CODE
+                    worksheet.set_column('K:K', 15)   # EXT_LIN_MONTO
+                    worksheet.set_column('L:L', 15)   # EXT_LIN_ID
+                    worksheet.set_column('M:M', 12)   # STATUS
                     worksheet.set_column('N:N', 50)   # TRX_TEXT
-                    worksheet.set_column('O:Q', 15)   # NRO_DOCUMENTO, SOCIO_COMERCIAL, COMENTARIO_ESPERADO
-                    worksheet.set_column('R:R', 40)   # INFORMACION_ADICIONAL (más ancha)
+                    worksheet.set_column('O:O', 20)   # NRO_DOCUMENTO
+                    worksheet.set_column('P:P', 25)   # SOCIO_COMERCIAL
+                    worksheet.set_column('Q:Q', 25)   # COMENTARIO_ESPERADO
+                    worksheet.set_column('R:R', 40)   # INFORMACION_ADICIONAL
+                    
                     worksheet.freeze_panes(1, 0)
                 
                 output.seek(0)
@@ -358,13 +446,17 @@ else:
         - ✅ Genera columna MES automáticamente
         - ✅ Ordena por fecha (más reciente primero)
         - ✅ Formato Excel profesional
-        - ✅ **Incluye columna INFORMACION_ADICIONAL**
+        - ✅ Incluye columna INFORMACION_ADICIONAL
+        - ⭐ **PRESERVA FORMATO DE ORIGEN** (CTA_BANCO, CTA_NUMERO, etc. como texto)
         
         **Columnas obligatorias:** ENTIDAD_LEGAL, NOMBRE_BANCO, CTA_BANCO, CTA_NUMERO, 
         EXTRACTO_FECHA, EXT_TIPO_TRX, EXT_LIN_MONTO, STATUS, TRX_TEXT, COMENTARIO_ESPERADO
         
         **Columnas opcionales:** EXTRACTO_NUM, EXT_LINEA_NUM, TRX_CODE, EXT_LIN_ID, 
-        NRO_DOCUMENTO, SOCIO_COMERCIAL, **INFORMACION_ADICIONAL**
+        NRO_DOCUMENTO, SOCIO_COMERCIAL, INFORMACION_ADICIONAL
+        
+        **⚠️ Importante:** Las columnas CTA_BANCO, CTA_NUMERO y otras identificadoras 
+        se exportan como TEXTO para preservar ceros iniciales y formato original.
         """)
 
 st.markdown("---")

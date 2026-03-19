@@ -48,8 +48,8 @@ COLUMNAS_OPCIONALES = {
 COLUMNAS_FORMATO_TEXTO = [
     'ENTIDAD_LEGAL',
     'NOMBRE_BANCO',
-    'CTA_BANCO',          # ⭐ Importante: preservar ceros iniciales
-    'CTA_NUMERO',         # ⭐ Importante: preservar ceros iniciales
+    'CTA_BANCO',
+    'CTA_NUMERO',
     'EXTRACTO_NUM',
     'EXT_LINEA_NUM',
     'EXT_TIPO_TRX',
@@ -163,11 +163,21 @@ def procesar_pestaña(df, nombre_pestaña):
         for col_estandar in COLUMNAS_FINALES[1:]:
             if col_estandar in columnas_encontradas:
                 col_original = columnas_encontradas[col_estandar]
-                # Convertir a texto si está en la lista de columnas de texto
                 if col_estandar in COLUMNAS_FORMATO_TEXTO:
                     df_extraido[col_estandar] = df[col_original].apply(
                         lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != '' and str(x).lower() != 'nan' else ''
                     )
+                # ── CAMBIO 1: EXT_LIN_MONTO siempre como número ──
+                elif col_estandar == 'EXT_LIN_MONTO':
+                    df_extraido[col_estandar] = pd.to_numeric(
+                        df[col_original]
+                            .astype(str)
+                            .str.strip()
+                            .str.replace(r'[^\d.,-]', '', regex=True)
+                            .str.replace(',', '.', regex=False),
+                        errors='coerce'
+                    )
+                # ─────────────────────────────────────────────────
                 else:
                     df_extraido[col_estandar] = df[col_original]
             else:
@@ -212,7 +222,6 @@ def procesar_archivo(archivo, logs):
         
         for nombre_pestaña in pestañas_a_procesar:
             try:
-                # Leer con dtype='object' para preservar el formato original
                 df = pd.read_excel(xls, sheet_name=nombre_pestaña, dtype=str)
                 df_procesado, logs_pestaña = procesar_pestaña(df, nombre_pestaña)
                 logs.extend(logs_pestaña)
@@ -357,9 +366,9 @@ if archivos_subidos:
                         'valign': 'vcenter'
                     })
                     
-                    # Formato de texto (preserva ceros iniciales y formato original)
+                    # Formato de texto
                     text_format = workbook.add_format({
-                        'num_format': '@',  # @ = formato de texto en Excel
+                        'num_format': '@',
                         'align': 'left'
                     })
                     
@@ -384,38 +393,45 @@ if archivos_subidos:
                     
                     for col_num, col_name in enumerate(df_consolidado.columns):
                         if col_name in COLUMNAS_FORMATO_TEXTO:
-                            # Aplicar formato de texto
                             worksheet.set_column(col_num, col_num, None, text_format)
-                            # Escribir cada celda como texto
                             for row_num in range(1, num_rows + 1):
                                 value = df_consolidado.iloc[row_num - 1, col_num]
                                 worksheet.write_string(row_num, col_num, str(value) if pd.notna(value) else '', text_format)
                         elif col_name == 'EXTRACTO_FECHA':
-                            # Formato de fecha
                             worksheet.set_column(col_num, col_num, 12, date_format)
+                        # ── CAMBIO 2: escribir EXT_LIN_MONTO como número real ──
                         elif col_name == 'EXT_LIN_MONTO':
-                            # Formato numérico para montos
                             worksheet.set_column(col_num, col_num, 15, number_format)
+                            for row_num in range(1, num_rows + 1):
+                                value = df_consolidado.iloc[row_num - 1, col_num]
+                                if pd.notna(value):
+                                    try:
+                                        worksheet.write_number(row_num, col_num, float(value), number_format)
+                                    except (ValueError, TypeError):
+                                        worksheet.write_blank(row_num, col_num, number_format)
+                                else:
+                                    worksheet.write_blank(row_num, col_num, number_format)
+                        # ───────────────────────────────────────────────────────
                     
                     # Ajustar anchos de columna
-                    worksheet.set_column('A:A', 12)   # MES
-                    worksheet.set_column('B:B', 20)   # ENTIDAD_LEGAL
-                    worksheet.set_column('C:C', 20)   # NOMBRE_BANCO
-                    worksheet.set_column('D:D', 15)   # CTA_BANCO
-                    worksheet.set_column('E:E', 20)   # CTA_NUMERO
-                    worksheet.set_column('F:F', 15)   # EXTRACTO_NUM
-                    worksheet.set_column('G:G', 15)   # EXTRACTO_FECHA
-                    worksheet.set_column('H:H', 15)   # EXT_LINEA_NUM
-                    worksheet.set_column('I:I', 12)   # EXT_TIPO_TRX
-                    worksheet.set_column('J:J', 12)   # TRX_CODE
-                    worksheet.set_column('K:K', 15)   # EXT_LIN_MONTO
-                    worksheet.set_column('L:L', 15)   # EXT_LIN_ID
-                    worksheet.set_column('M:M', 12)   # STATUS
-                    worksheet.set_column('N:N', 50)   # TRX_TEXT
-                    worksheet.set_column('O:O', 20)   # NRO_DOCUMENTO
-                    worksheet.set_column('P:P', 25)   # SOCIO_COMERCIAL
-                    worksheet.set_column('Q:Q', 25)   # COMENTARIO_ESPERADO
-                    worksheet.set_column('R:R', 40)   # INFORMACION_ADICIONAL
+                    worksheet.set_column('A:A', 12)
+                    worksheet.set_column('B:B', 20)
+                    worksheet.set_column('C:C', 20)
+                    worksheet.set_column('D:D', 15)
+                    worksheet.set_column('E:E', 20)
+                    worksheet.set_column('F:F', 15)
+                    worksheet.set_column('G:G', 15)
+                    worksheet.set_column('H:H', 15)
+                    worksheet.set_column('I:I', 12)
+                    worksheet.set_column('J:J', 12)
+                    worksheet.set_column('K:K', 15)
+                    worksheet.set_column('L:L', 15)
+                    worksheet.set_column('M:M', 12)
+                    worksheet.set_column('N:N', 50)
+                    worksheet.set_column('O:O', 20)
+                    worksheet.set_column('P:P', 25)
+                    worksheet.set_column('Q:Q', 25)
+                    worksheet.set_column('R:R', 40)
                     
                     worksheet.freeze_panes(1, 0)
                 
